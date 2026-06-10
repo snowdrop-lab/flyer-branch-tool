@@ -1,10 +1,11 @@
 <!--
-  チラシ拠点情報 差し込みツール v0.4
+  チラシ拠点情報 差し込みツール v0.5
   (c) 2026 GreenCross+Yamagata — MIT License
   ・PDFをドロップ → 拠点を選択 → PNG/PDF出力
   ・追加要素：担当者印（シャチハタ風）／もう一行の自由入力
   ・書体（角ゴ/丸ゴ）・文字色・サイズ・配置（ドラッグ）を調整可
   ・スマホ対応：要素の選択ボタン＋十字パッド（押している間は連続移動）を追加
+  ・スマホ保存対応：共有シートで「画像を保存」「ファイルに保存」を選択可能に
   ・処理はすべてブラウザ内で完結（ファイルはどこにも送信されません）
 -->
 <meta charset="utf-8">
@@ -61,6 +62,13 @@
   .pill{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px}
   .swap{color:var(--gc-green-d);font-weight:700;cursor:pointer;text-decoration:underline;background:none;border:none;font-family:var(--jp);font-size:12px}
   .err{color:#b3261e;font-size:12.5px;margin-top:8px;display:none}
+
+  /* ---------- 保存モーダル（スマホで共有が使えない場合の長押し保存） ---------- */
+  .savebox{display:none;position:fixed;inset:0;z-index:50;background:rgba(10,20,15,.82);align-items:center;justify-content:center;padding:18px}
+  .savein{max-width:560px;width:100%;max-height:92vh;overflow:auto;background:#fff;border-radius:14px;padding:16px;text-align:center}
+  .savein p{font-size:13.5px;line-height:1.7;margin:2px 0 12px;color:var(--ink)}
+  .savein img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;-webkit-touch-callout:default}
+  .savein button{margin-top:14px;min-height:46px;width:100%;font-size:14px;font-weight:700;font-family:var(--jp);border:none;border-radius:10px;background:var(--gc-green);color:#fff;cursor:pointer}
 
   /* ---------- 移動コントロール（選択ボタン＋十字パッド） ---------- */
   .mover{margin:14px 2px 2px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfdfb}
@@ -213,6 +221,14 @@
   </footer>
 </div>
 <input type="file" id="file" accept="application/pdf,image/png,image/jpeg" style="display:none">
+
+<div class="savebox" id="savebox">
+  <div class="savein">
+    <p>下の画像を<b>長押し</b>して<br>「<b>“写真”に追加</b>」または「<b>画像を保存</b>」を選んでください</p>
+    <img id="saveimg" alt="出力画像">
+    <button id="saveclose">閉じる</button>
+  </div>
+</div>
 
 <script>
 /* ---------- 拠点マスタ（ここを編集すると一覧が変わります）（green-cross.co.jp 事業所一覧より） ---------- */
@@ -470,8 +486,48 @@ window.addEventListener("blur",()=>stopPad());
 /* ---------- 出力 ---------- */
 function compose(){const c=document.createElement("canvas");c.width=cPdf.width;c.height=cPdf.height;const x=c.getContext("2d");ctxT.clearRect(0,0,cText.width,cText.height);state.bbox={};drawContact();drawFree();drawStamp();x.drawImage(cPdf,0,0);x.drawImage(cText,0,0);draw();return c;}
 function outName(ext){const off=($("name").value.trim()||"拠点").replace(/[\\\/:*?"<>|]/g,"");return state.origName+"_"+off+"."+ext;}
-function dl(href,name){const a=document.createElement("a");a.href=href;a.download=name;a.click();}
-$("png").addEventListener("click",()=>{if(state.loaded)dl(compose().toDataURL("image/png"),outName("png"));});
+/* ---------- 出力（PC：ダウンロード ／ スマホ：共有シート） ---------- */
+function isTouch(){return matchMedia("(pointer:coarse)").matches;}
+function canvasBlob(c,type,q){return new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error("画像の生成に失敗")),type,q));}
+async function saveBlob(blob,name){
+  // スマホ：共有シート（写真に保存／ファイルに保存／LINEで送る…が選べる）
+  try{
+    const f=new File([blob],name,{type:blob.type});
+    if(isTouch()&&navigator.canShare&&navigator.canShare({files:[f]})){
+      await navigator.share({files:[f],title:name});
+      return;
+    }
+  }catch(e){
+    if(e&&e.name==="AbortError")return; // ユーザーがキャンセル：何もしない
+    /* 共有に失敗した場合は下のフォールバックへ */
+  }
+  const url=URL.createObjectURL(blob);
+  if(isTouch()){
+    if(blob.type==="image/png"){showSaveModal(url);return;}   // 画像：長押し保存の案内
+    const w=window.open(url,"_blank");                         // PDF：新しいタブで開く→共有から保存
+    if(w){setTimeout(()=>URL.revokeObjectURL(url),120000);return;}
+  }
+  const a=document.createElement("a");a.href=url;a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+function showSaveModal(url){
+  $("saveimg").src=url;
+  $("savebox").style.display="flex";
+}
+$("saveclose").addEventListener("click",()=>{
+  $("savebox").style.display="none";
+  const u=$("saveimg").src; $("saveimg").src="";
+  if(u.startsWith("blob:"))URL.revokeObjectURL(u);
+});
+
+$("png").addEventListener("click",async()=>{
+  if(!state.loaded)return;
+  try{
+    const blob=await canvasBlob(compose(),"image/png");
+    await saveBlob(blob,outName("png"));
+  }catch(err){showErr("PNG出力でエラー："+(err&&err.message||err));}
+});
 $("pdf").addEventListener("click",async()=>{
   if(!state.loaded)return;
   try{
@@ -482,7 +538,7 @@ $("pdf").addEventListener("click",async()=>{
     const img=await doc.embedJpg(bytes);
     page.drawImage(img,{x:0,y:0,width:state.pageW,height:state.pageH});
     const out=await doc.save();
-    dl(URL.createObjectURL(new Blob([out],{type:"application/pdf"})),outName("pdf"));
+    await saveBlob(new Blob([out],{type:"application/pdf"}),outName("pdf"));
   }catch(err){showErr("PDF出力でエラー："+(err&&err.message||err));}
 });
 </script>
