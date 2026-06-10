@@ -1,11 +1,12 @@
 <!--
-  チラシ拠点情報 差し込みツール v0.5
+  チラシ・写真 文字入れツール v0.6
   (c) 2026 GreenCross+Yamagata — MIT License
   ・PDFをドロップ → 拠点を選択 → PNG/PDF出力
   ・追加要素：担当者印（シャチハタ風）／もう一行の自由入力
   ・書体（角ゴ/丸ゴ）・文字色・サイズ・配置（ドラッグ）を調整可
   ・スマホ対応：要素の選択ボタン＋十字パッド（押している間は連続移動）を追加
   ・スマホ保存対応：共有シートで「画像を保存」「ファイルに保存」を選択可能に
+  ・ひとこと×3（行ごとに色/サイズ/位置）＋🎤音声入力（Web Speech API・キー不要）
   ・処理はすべてブラウザ内で完結（ファイルはどこにも送信されません）
 -->
 <meta charset="utf-8">
@@ -63,6 +64,17 @@
   .swap{color:var(--gc-green-d);font-weight:700;cursor:pointer;text-decoration:underline;background:none;border:none;font-family:var(--jp);font-size:12px}
   .err{color:#b3261e;font-size:12.5px;margin-top:8px;display:none}
 
+  /* ---------- ひとこと×3＋音声入力 ---------- */
+  .oneword{padding-bottom:10px;margin-bottom:10px;border-bottom:1px dashed var(--line)}
+  .vfield{display:flex;gap:6px;margin-bottom:6px}
+  .vfield input{flex:1;min-width:0}
+  .mic{flex:0 0 46px;min-height:42px;font-size:17px;border:1px solid var(--line);border-radius:9px;background:#fff;cursor:pointer;touch-action:manipulation}
+  .mic.rec{background:#d7000f;border-color:#d7000f;animation:micpulse 1s infinite}
+  @keyframes micpulse{0%,100%{opacity:1}50%{opacity:.55}}
+  .row.tight{gap:8px}
+  .row.tight .field{margin-bottom:0}
+  .seg.mini button{padding:6px 8px;font-size:11.5px}
+
   /* ---------- 保存モーダル（スマホで共有が使えない場合の長押し保存） ---------- */
   .savebox{display:none;position:fixed;inset:0;z-index:50;background:rgba(10,20,15,.82);align-items:center;justify-content:center;padding:18px}
   .savein{max-width:560px;width:100%;max-height:92vh;overflow:auto;background:#fff;border-radius:14px;padding:16px;text-align:center}
@@ -74,7 +86,7 @@
   .mover{margin:14px 2px 2px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfdfb}
   .mover .mv-title{font-size:11.5px;font-weight:800;color:var(--muted);letter-spacing:.04em;margin:0 0 8px}
   .mv-pick{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-  .mv-pick button{flex:1;min-width:96px;min-height:44px;padding:9px 10px;font-size:13.5px;font-weight:700;font-family:var(--jp);border:1px solid var(--line);background:#fff;border-radius:10px;cursor:pointer;color:var(--ink);touch-action:manipulation}
+  .mv-pick button{flex:1 1 calc(33.3% - 8px);min-width:0;min-height:44px;padding:9px 10px;font-size:13.5px;font-weight:700;font-family:var(--jp);border:1px solid var(--line);background:#fff;border-radius:10px;cursor:pointer;color:var(--ink);touch-action:manipulation}
   .mv-pick button.on{background:var(--gc-green);border-color:var(--gc-green);color:#fff}
   .mv-pick button:disabled{opacity:.35;cursor:not-allowed}
   .mv-body{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap}
@@ -106,9 +118,9 @@
 <div class="wrap">
   <header class="app">
     <span class="mark"></span>
-    <h1>チラシ拠点情報 差し込みツール</h1>
+    <h1>チラシ・写真 文字入れツール</h1>
   </header>
-  <div class="howto"><b>簡単な使い方：</b> ファイル（PDF/JPG/PNG）をドロップ <span class="ar">→</span> 拠点を選ぶ <span class="ar">→</span> 出力 <span class="note">（処理は端末内で完結）</span></div>
+  <div class="howto"><b>簡単な使い方：</b> チラシや現場写真（PDF/JPG/PNG）をドロップ <span class="ar">→</span> 文字を入れる <span class="ar">→</span> 出力 <span class="note">（処理は端末内で完結）</span></div>
 
   <div class="grid">
     <section class="card"><div class="bd">
@@ -151,19 +163,44 @@
       </div>
 
       <div class="sec">
-        <h3>もう一行（自由入力・任意）</h3>
-        <div class="field" style="margin-bottom:10px"><input type="text" id="free" placeholder="例：携帯 090-0000-0000／在庫わずか／SALE中"></div>
-        <div class="row">
-          <div class="field" style="margin-bottom:0"><label>色</label>
-            <div class="seg col" id="freecolor">
+        <h3>ひとこと（最大3つ・任意）</h3>
+        <div class="oneword">
+          <div class="field vfield"><input type="text" id="free1" placeholder="例：3F 北側 配管あり"><button class="mic" data-t="free1" title="音声入力" aria-label="音声入力">🎤</button></div>
+          <div class="row tight">
+            <div class="field"><div class="seg col mini" id="fcol1">
               <button data-c="#111111" class="on"><span class="dot" style="background:#111"></span>黒</button>
               <button data-c="#08b14d"><span class="dot" style="background:#08b14d"></span>緑</button>
               <button data-c="#d7000f"><span class="dot" style="background:#d7000f"></span>赤</button>
               <button data-c="#ffffff"><span class="dot" style="background:#fff"></span>白</button>
-            </div>
+            </div></div>
+            <div class="field"><input type="range" id="fsize1" min="8" max="48" step="0.5" value="16"></div>
           </div>
-          <div class="field" style="margin-bottom:0"><label>サイズ</label><input type="range" id="freesize" min="8" max="40" step="0.5" value="13"></div>
         </div>
+        <div class="oneword">
+          <div class="field vfield"><input type="text" id="free2" placeholder="例：6/15 撮影"><button class="mic" data-t="free2" title="音声入力" aria-label="音声入力">🎤</button></div>
+          <div class="row tight">
+            <div class="field"><div class="seg col mini" id="fcol2">
+              <button data-c="#111111" class="on"><span class="dot" style="background:#111"></span>黒</button>
+              <button data-c="#08b14d"><span class="dot" style="background:#08b14d"></span>緑</button>
+              <button data-c="#d7000f"><span class="dot" style="background:#d7000f"></span>赤</button>
+              <button data-c="#ffffff"><span class="dot" style="background:#fff"></span>白</button>
+            </div></div>
+            <div class="field"><input type="range" id="fsize2" min="8" max="48" step="0.5" value="13"></div>
+          </div>
+        </div>
+        <div class="oneword" style="border-bottom:none;padding-bottom:0;margin-bottom:0">
+          <div class="field vfield"><input type="text" id="free3" placeholder="例：要確認 → 担当：山田"><button class="mic" data-t="free3" title="音声入力" aria-label="音声入力">🎤</button></div>
+          <div class="row tight">
+            <div class="field"><div class="seg col mini" id="fcol3">
+              <button data-c="#111111" class="on"><span class="dot" style="background:#111"></span>黒</button>
+              <button data-c="#08b14d"><span class="dot" style="background:#08b14d"></span>緑</button>
+              <button data-c="#d7000f"><span class="dot" style="background:#d7000f"></span>赤</button>
+              <button data-c="#ffffff"><span class="dot" style="background:#fff"></span>白</button>
+            </div></div>
+            <div class="field"><input type="range" id="fsize3" min="8" max="48" step="0.5" value="13"></div>
+          </div>
+        </div>
+        <div class="hint mic-hint">🎤を押して話すと文字になります（行ごとに色・サイズ・位置を調整できます）。</div>
       </div>
 
       <div class="btns">
@@ -193,7 +230,9 @@
         <p class="mv-title">位置の調整：動かす要素を選んで、矢印を押し続けると動きます</p>
         <div class="mv-pick" id="pick">
           <button data-k="blk" class="on">拠点情報</button>
-          <button data-k="free">もう一行</button>
+          <button data-k="free1">ひとこと①</button>
+          <button data-k="free2">ひとこと②</button>
+          <button data-k="free3">ひとこと③</button>
           <button data-k="stamp">担当者印</button>
         </div>
         <div class="mv-body">
@@ -251,11 +290,14 @@ let state={
   loaded:false,pageW:0,pageH:0,scale:1,origName:"flyer",
   font:"kaku",
   blk:{nx:.50,ny:.92},   blkPt:18, blkColor:"#111111",
-  free:{nx:.50,ny:.83},  freePt:13, freeColor:"#111111",
+  free1:{nx:.50,ny:.72}, fPt1:16, fCol1:"#111111",
+  free2:{nx:.50,ny:.79}, fPt2:13, fCol2:"#111111",
+  free3:{nx:.50,ny:.85}, fPt3:13, fCol3:"#111111",
   stamp:{nx:.93,ny:.90}, stampPt:28,
   bbox:{}, active:null,
 };
-const DEF={blk:{nx:.50,ny:.92},free:{nx:.50,ny:.83},stamp:{nx:.93,ny:.90}};
+const DEF={blk:{nx:.50,ny:.92},free1:{nx:.50,ny:.72},free2:{nx:.50,ny:.79},free3:{nx:.50,ny:.85},stamp:{nx:.93,ny:.90}};
+const ITEMS=["blk","free1","free2","free3","stamp"];
 
 function FF(){ return state.font==="maru"
   ? '"Hiragino Maru Gothic ProN","Hiragino Maru Gothic Pro","YuGothic","Yu Gothic","Meiryo",sans-serif'
@@ -265,17 +307,49 @@ function WT(){ return state.font==="maru"?"600":"700"; }
 /* セレクト生成 */
 (function(){const sel=$("office");for(const r in OFFICES){const og=document.createElement("optgroup");og.label=r;OFFICES[r].forEach((o,i)=>{const op=document.createElement("option");op.value=r+"|"+i;op.textContent=o[0];og.appendChild(op);});sel.appendChild(og);}})();
 $("office").addEventListener("change",e=>{const v=e.target.value;if(!v)return;const[r,i]=v.split("|");const o=OFFICES[r][+i];$("name").value=o[0];$("tel").value=o[1];$("fax").value=o[2];draw();});
-["name","tel","fax","free","staff"].forEach(id=>$(id).addEventListener("input",draw));
+["name","tel","fax","free1","free2","free3","staff"].forEach(id=>$(id).addEventListener("input",draw));
+
+/* ---------- 音声入力（ブラウザ内蔵・APIキー不要） ---------- */
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+if(!SR){
+  document.querySelectorAll(".mic").forEach(b=>b.style.display="none");
+  const mh=document.querySelector(".mic-hint");
+  if(mh)mh.textContent="このブラウザは🎤に未対応です。キーボードのマイクボタンから音声入力できます。";
+}else{
+  let rec=null;
+  document.querySelectorAll(".mic").forEach(btn=>btn.addEventListener("click",()=>{
+    if(rec){try{rec.stop();}catch(e){} return;}   // もう一度押すと停止
+    const input=$(btn.dataset.t), base=input.value;
+    rec=new SR(); rec.lang="ja-JP"; rec.interimResults=true; rec.continuous=false;
+    btn.classList.add("rec"); btn.textContent="⏹";
+    let fin="";
+    rec.onresult=e=>{
+      let interim="";
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        const r=e.results[i];
+        if(r.isFinal)fin+=r[0].transcript; else interim+=r[0].transcript;
+      }
+      input.value=base+fin+interim;
+      input.dispatchEvent(new Event("input"));
+    };
+    rec.onerror=e=>{
+      if(e.error==="not-allowed"||e.error==="service-not-allowed")
+        showErr("マイクの使用が許可されていません。ブラウザの設定でマイクを許可してください。");
+    };
+    rec.onend=()=>{btn.classList.remove("rec");btn.textContent="🎤";rec=null;};
+    try{rec.start();}catch(e){btn.classList.remove("rec");btn.textContent="🎤";rec=null;}
+  }));
+}
 
 /* 書体・色・サイズ */
 document.querySelectorAll("#fontseg button").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("#fontseg button").forEach(x=>x.classList.remove("on"));b.classList.add("on");state.font=b.dataset.f;draw();}));
 function colorSeg(segId,key){document.querySelectorAll("#"+segId+" button").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("#"+segId+" button").forEach(x=>x.classList.remove("on"));b.classList.add("on");state[key]=b.dataset.c;draw();}));}
-colorSeg("blkcolor","blkColor"); colorSeg("freecolor","freeColor");
+colorSeg("blkcolor","blkColor"); colorSeg("fcol1","fCol1"); colorSeg("fcol2","fCol2"); colorSeg("fcol3","fCol3");
 $("blksize").addEventListener("input",e=>{state.blkPt=+e.target.value;$("blkszl").textContent=Math.round(state.blkPt)+"pt";draw();});
 $("blkszl").textContent="18pt";
-$("freesize").addEventListener("input",e=>{state.freePt=+e.target.value;draw();});
+[1,2,3].forEach(i=>$("fsize"+i).addEventListener("input",e=>{state["fPt"+i]=+e.target.value;draw();}));
 $("stampsize").addEventListener("input",e=>{state.stampPt=+e.target.value;draw();});
-$("reset").addEventListener("click",()=>{state.blk={...DEF.blk};state.free={...DEF.free};state.stamp={...DEF.stamp};draw();});
+$("reset").addEventListener("click",()=>{ITEMS.forEach(k=>state[k]={...DEF[k]});draw();});
 
 /* ファイル */
 const drop=$("drop"),fileInput=$("file");
@@ -362,14 +436,17 @@ function drawContact(){
   state.bbox.blk={x:x-6,y:y-6,w:totalW+12,h:Math.max(big*0.92,stackH)+12};
 }
 function drawFree(){
-  const t=$("free").value.trim(); if(!t)return;
-  const s=state.scale,px=state.freePt*s;
-  const x=state.free.nx*cText.width,y=state.free.ny*cText.height;
-  ctxT.textBaseline="top";ctxT.textAlign="left";
-  ctxT.font=WT()+" "+px+"px "+FF();
-  strokeIfWhite(state.freeColor,px,t,x,y);
-  ctxT.fillStyle=state.freeColor; ctxT.fillText(t,x,y);
-  state.bbox.free={x:x-6,y:y-6,w:ctxT.measureText(t).width+12,h:px*0.92+12};
+  for(let i=1;i<=3;i++){
+    const t=$("free"+i).value.trim(); if(!t)continue;
+    const s=state.scale,px=state["fPt"+i]*s,col=state["fCol"+i];
+    const it=state["free"+i];
+    const x=it.nx*cText.width,y=it.ny*cText.height;
+    ctxT.textBaseline="top";ctxT.textAlign="left";
+    ctxT.font=WT()+" "+px+"px "+FF();
+    strokeIfWhite(col,px,t,x,y);
+    ctxT.fillStyle=col; ctxT.fillText(t,x,y);
+    state.bbox["free"+i]={x:x-6,y:y-6,w:ctxT.measureText(t).width+12,h:px*0.92+12};
+  }
 }
 function drawStamp(){
   const nm=$("staff").value.trim(); if(!nm)return;
@@ -389,7 +466,7 @@ function drawStamp(){
 
 /* ---------- ドラッグ／キー操作 ---------- */
 function toCanvas(e){const r=cText.getBoundingClientRect();return{cx:(e.clientX-r.left)*(cText.width/r.width),cy:(e.clientY-r.top)*(cText.height/r.height)};}
-function hitItem(cx,cy){for(const k of["stamp","free","blk"]){const b=state.bbox[k];if(b&&cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h)return k;}return null;}
+function hitItem(cx,cy){for(const k of["stamp","free3","free2","free1","blk"]){const b=state.bbox[k];if(b&&cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h)return k;}return null;}
 let dragging=false,dx=0,dy=0;
 cText.addEventListener("pointerdown",e=>{
   const{cx,cy}=toCanvas(e);const k=hitItem(cx,cy);
@@ -415,10 +492,10 @@ window.addEventListener("keydown",e=>{
 });
 
 /* ---------- 要素選択ボタン＋十字パッド（スマホ向け） ---------- */
-const PICKLBL={blk:"拠点情報",free:"もう一行",stamp:"担当者印"};
+const PICKLBL={blk:"拠点情報",free1:"ひとこと①",free2:"ひとこと②",free3:"ひとこと③",stamp:"担当者印"};
 function hasContent(k){
   if(k==="blk")return !!($("name").value.trim()||$("tel").value.trim()||$("fax").value.trim());
-  if(k==="free")return !!$("free").value.trim();
+  if(k==="free1"||k==="free2"||k==="free3")return !!$(k).value.trim();
   if(k==="stamp")return !!$("staff").value.trim();
   return false;
 }
@@ -430,7 +507,7 @@ function updatePicker(){
   });
   // 選択中の要素が空になったら、内容のある要素へ自動で切替
   if(state.active&&!hasContent(state.active)){
-    const next=["blk","free","stamp"].find(hasContent);
+    const next=ITEMS.find(hasContent);
     state.active=next||null;
     document.querySelectorAll("#pick button").forEach(b=>b.classList.toggle("on",state.active===b.dataset.k));
   }
@@ -454,7 +531,7 @@ let padTimer=null;
 function padMove(dxn,dyn){
   if(!state.loaded)return;
   if(!state.active||!hasContent(state.active)){
-    state.active=["blk","free","stamp"].find(hasContent)||null;
+    state.active=ITEMS.find(hasContent)||null;
     if(!state.active)return;
   }
   const it=state[state.active], step=SPEEDS[padSpeed];
