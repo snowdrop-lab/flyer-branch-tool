@@ -1,0 +1,488 @@
+<!--
+  チラシ拠点情報 差し込みツール v0.4
+  (c) 2026 GreenCross+Yamagata — MIT License
+  ・PDFをドロップ → 拠点を選択 → PNG/PDF出力
+  ・追加要素：担当者印（シャチハタ風）／もう一行の自由入力
+  ・書体（角ゴ/丸ゴ）・文字色・サイズ・配置（ドラッグ）を調整可
+  ・スマホ対応：要素の選択ボタン＋十字パッド（押している間は連続移動）を追加
+  ・処理はすべてブラウザ内で完結（ファイルはどこにも送信されません）
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root{
+    --gc-green:#08b14d; --gc-green-d:#067a36;
+    --ink:#1d2421; --muted:#6b7670; --line:#dfe6e1; --panel:#fff; --bg:#eef2ee;
+    --shadow:0 1px 2px rgba(20,40,30,.06),0 8px 24px rgba(20,40,30,.07);
+    --jp:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic Medium","Yu Gothic","Meiryo",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{font-family:var(--jp);color:var(--ink);background:var(--bg);line-height:1.55;-webkit-font-smoothing:antialiased;padding:20px}
+  .wrap{max-width:1140px;margin:0 auto}
+  header.app{display:flex;align-items:baseline;gap:12px;margin:2px 2px 16px;flex-wrap:wrap}
+  header.app .mark{width:13px;height:13px;border-radius:3px;background:var(--gc-green);transform:translateY(1px)}
+  header.app h1{font-size:18px;font-weight:800;margin:0;letter-spacing:.02em}
+  header.app .sub{font-size:12.5px;color:var(--muted)}
+  .howto{margin:0 2px 16px;background:rgba(8,177,77,.12);border:1px solid rgba(8,177,77,.35);color:var(--gc-green-d);border-radius:10px;padding:10px 14px;font-size:14.5px;font-weight:600}
+  .howto b{font-weight:800;color:var(--gc-green-d)}
+  .howto .ar{color:var(--gc-green);font-weight:800;margin:0 2px}
+  .howto .note{color:var(--muted);font-weight:500;font-size:12.5px}
+  .grid{display:grid;grid-template-columns:350px 1fr;gap:18px;align-items:start}
+  @media (max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+  .card .bd{padding:16px}
+  .field{margin-bottom:12px} .field:last-child{margin-bottom:0}
+  label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;letter-spacing:.02em}
+  select,input[type=text]{width:100%;padding:9px 10px;font-size:14px;font-family:var(--jp);color:var(--ink);border:1px solid var(--line);border-radius:9px;background:#fbfdfb;outline:none}
+  select:focus,input[type=text]:focus{border-color:var(--gc-green);box-shadow:0 0 0 3px rgba(8,177,77,.15)}
+  .row{display:flex;gap:10px} .row>*{flex:1}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:44px;padding:7px 8px;font-size:12.5px;font-family:var(--jp);border:1px solid var(--line);background:#fbfdfb;border-radius:8px;cursor:pointer;color:var(--ink)}
+  .seg button.on{background:var(--gc-green);border-color:var(--gc-green);color:#fff;font-weight:700}
+  .seg.col button .dot{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid #ccc;vertical-align:-1px;margin-right:4px}
+  input[type=range]{width:100%;accent-color:var(--gc-green)}
+  .sec{margin-top:14px;padding-top:13px;border-top:1px dashed var(--line)}
+  .sec h3{font-size:12px;font-weight:800;color:var(--ink);margin:0 0 9px;letter-spacing:.03em}
+  .hint{font-size:11.5px;color:var(--muted);margin-top:6px}
+  .btns{display:flex;gap:10px;margin-top:14px}
+  .btn{flex:1;padding:11px 12px;font-size:14px;font-weight:800;font-family:var(--jp);cursor:pointer;border-radius:10px;border:1px solid var(--gc-green);background:var(--gc-green);color:#fff}
+  .btn:hover{background:var(--gc-green-d)} .btn.ghost{background:#fff;color:var(--gc-green-d)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .stage{position:relative;min-height:360px;display:flex;align-items:center;justify-content:center;padding:16px}
+  .drop{border:2px dashed var(--line);border-radius:12px;width:100%;min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);text-align:center;cursor:pointer;transition:.15s;background:#fbfdfb}
+  .drop.hot{border-color:var(--gc-green);background:rgba(8,177,77,.06);color:var(--gc-green-d)}
+  .drop .big{font-size:15px;font-weight:700;color:var(--ink)}
+  .canvas-host{position:relative;line-height:0;touch-action:none;box-shadow:var(--shadow);border-radius:6px;overflow:hidden}
+  .canvas-host canvas{display:block;width:100%;height:auto}
+  #cText{position:absolute;left:0;top:0;cursor:grab} #cText.drag{cursor:grabbing}
+  .stagebar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:0 2px 10px;font-size:12px;color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+  .swap{color:var(--gc-green-d);font-weight:700;cursor:pointer;text-decoration:underline;background:none;border:none;font-family:var(--jp);font-size:12px}
+  .err{color:#b3261e;font-size:12.5px;margin-top:8px;display:none}
+
+  /* ---------- 移動コントロール（選択ボタン＋十字パッド） ---------- */
+  .mover{margin:14px 2px 2px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fbfdfb}
+  .mover .mv-title{font-size:11.5px;font-weight:800;color:var(--muted);letter-spacing:.04em;margin:0 0 8px}
+  .mv-pick{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .mv-pick button{flex:1;min-width:96px;min-height:44px;padding:9px 10px;font-size:13.5px;font-weight:700;font-family:var(--jp);border:1px solid var(--line);background:#fff;border-radius:10px;cursor:pointer;color:var(--ink);touch-action:manipulation}
+  .mv-pick button.on{background:var(--gc-green);border-color:var(--gc-green);color:#fff}
+  .mv-pick button:disabled{opacity:.35;cursor:not-allowed}
+  .mv-body{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap}
+  .mv-pad{display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(3,56px);gap:6px}
+  .mv-pad .pad{font-size:20px;font-family:var(--jp);border:1px solid var(--line);background:#fff;border-radius:12px;color:var(--gc-green-d);cursor:pointer;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;box-shadow:0 1px 2px rgba(20,40,30,.08)}
+  .mv-pad .pad:active,.mv-pad .pad.hold{background:var(--gc-green);border-color:var(--gc-green);color:#fff}
+  .mv-pad .pad-c{display:flex;align-items:center;justify-content:center;font-size:10.5px;color:var(--muted);text-align:center;line-height:1.3;user-select:none;-webkit-user-select:none}
+  .mv-side{display:flex;flex-direction:column;gap:8px;min-width:120px}
+  .mv-side .speed{display:flex;gap:6px}
+  .mv-side .speed button{flex:1;min-height:40px;font-size:12.5px;font-family:var(--jp);border:1px solid var(--line);background:#fff;border-radius:9px;cursor:pointer;color:var(--ink);touch-action:manipulation}
+  .mv-side .speed button.on{background:var(--gc-green);border-color:var(--gc-green);color:#fff;font-weight:700}
+  .mv-side .hint{margin-top:0}
+
+  /* ---------- スマホ調整 ---------- */
+  @media (max-width:900px){
+    body{padding:12px}
+    .grid{gap:14px}
+    /* スマホではプレビュー（ドロップ）を先頭に */
+    .grid > section.preview{order:-1}
+    .stage{min-height:240px;padding:10px}
+    .drop{min-height:240px}
+    select,input[type=text]{font-size:16px;padding:11px 12px} /* iOSのズーム防止 */
+    .seg button{min-height:42px}
+    .btn{min-height:48px}
+    .kbd-hint{display:none}
+  }
+</style>
+
+<div class="wrap">
+  <header class="app">
+    <span class="mark"></span>
+    <h1>チラシ拠点情報 差し込みツール</h1>
+  </header>
+  <div class="howto"><b>簡単な使い方：</b> ファイル（PDF/JPG/PNG）をドロップ <span class="ar">→</span> 拠点を選ぶ <span class="ar">→</span> 出力 <span class="note">（処理は端末内で完結）</span></div>
+
+  <div class="grid">
+    <section class="card"><div class="bd">
+      <div class="field">
+        <label>拠点</label>
+        <select id="office"><option value="">― 選択してください ―</option></select>
+      </div>
+      <div class="field"><label>表示名（編集可）</label><input type="text" id="name" placeholder="例：山形支社"></div>
+      <div class="row">
+        <div class="field" style="margin-bottom:12px"><label>TEL</label><input type="text" id="tel" placeholder="TEL 000-000-0000"></div>
+        <div class="field" style="margin-bottom:12px"><label>FAX</label><input type="text" id="fax" placeholder="FAX 000-000-0000"></div>
+      </div>
+
+      <div class="field"><label>書体</label>
+        <div class="seg" id="fontseg">
+          <button data-f="kaku" class="on">角ゴ</button>
+          <button data-f="maru">丸ゴ</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field" style="margin-bottom:12px"><label>拠点情報の色</label>
+          <div class="seg col" id="blkcolor">
+            <button data-c="#111111" class="on"><span class="dot" style="background:#111"></span>黒</button>
+            <button data-c="#08b14d"><span class="dot" style="background:#08b14d"></span>緑</button>
+            <button data-c="#ffffff"><span class="dot" style="background:#fff"></span>白</button>
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:12px"><label>サイズ <span id="blkszl" style="color:var(--ink)"></span></label>
+          <input type="range" id="blksize" min="11" max="34" step="0.5" value="18">
+        </div>
+      </div>
+
+      <div class="sec">
+        <h3>担当者印（シャチハタ風・任意）</h3>
+        <div class="row">
+          <div class="field" style="margin-bottom:0"><label>名字</label><input type="text" id="staff" placeholder="例：阿部"></div>
+          <div class="field" style="margin-bottom:0"><label>印サイズ</label><input type="range" id="stampsize" min="14" max="52" step="1" value="28"></div>
+        </div>
+        <div class="hint">入力すると赤い丸印が出ます。ドラッグで配置してください。</div>
+      </div>
+
+      <div class="sec">
+        <h3>もう一行（自由入力・任意）</h3>
+        <div class="field" style="margin-bottom:10px"><input type="text" id="free" placeholder="例：携帯 090-0000-0000／在庫わずか／SALE中"></div>
+        <div class="row">
+          <div class="field" style="margin-bottom:0"><label>色</label>
+            <div class="seg col" id="freecolor">
+              <button data-c="#111111" class="on"><span class="dot" style="background:#111"></span>黒</button>
+              <button data-c="#08b14d"><span class="dot" style="background:#08b14d"></span>緑</button>
+              <button data-c="#d7000f"><span class="dot" style="background:#d7000f"></span>赤</button>
+              <button data-c="#ffffff"><span class="dot" style="background:#fff"></span>白</button>
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:0"><label>サイズ</label><input type="range" id="freesize" min="8" max="40" step="0.5" value="13"></div>
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="btn ghost" id="reset" disabled>位置リセット</button>
+        <button class="btn" id="png" disabled>PNG出力</button>
+        <button class="btn" id="pdf" disabled>PDF出力</button>
+      </div>
+      <div class="hint kbd-hint">PCでは各要素をドラッグ移動できます（クリックで選択 → 矢印キーで微調整、Shiftで大きく）。</div>
+      <div class="err" id="err"></div>
+    </div></section>
+
+    <section class="card preview"><div class="bd">
+      <div class="stagebar">
+        <span class="pill"><span class="mark" style="width:9px;height:9px;border-radius:2px;background:var(--gc-green);display:inline-block"></span> <span id="fname">ファイル未選択</span></span>
+        <button class="swap" id="swap" style="display:none">別のPDFに差し替え</button>
+      </div>
+      <div class="stage">
+        <div class="drop" id="drop">
+          <div class="big">チラシをドロップ</div><div style="font-size:12px">PDF / JPG / PNG 対応</div><div>またはクリックして選択</div>
+        </div>
+        <div class="canvas-host" id="host" style="display:none">
+          <canvas id="cPdf"></canvas><canvas id="cText"></canvas>
+        </div>
+      </div>
+
+      <div class="mover" id="mover" style="display:none">
+        <p class="mv-title">位置の調整：動かす要素を選んで、矢印を押し続けると動きます</p>
+        <div class="mv-pick" id="pick">
+          <button data-k="blk" class="on">拠点情報</button>
+          <button data-k="free">もう一行</button>
+          <button data-k="stamp">担当者印</button>
+        </div>
+        <div class="mv-body">
+          <div class="mv-pad" id="pad">
+            <span></span><button class="pad" data-dx="0" data-dy="-1" aria-label="上へ移動">▲</button><span></span>
+            <button class="pad" data-dx="-1" data-dy="0" aria-label="左へ移動">◀</button><div class="pad-c" id="padc">長押しで<br>連続移動</div><button class="pad" data-dx="1" data-dy="0" aria-label="右へ移動">▶</button>
+            <span></span><button class="pad" data-dx="0" data-dy="1" aria-label="下へ移動">▼</button><span></span>
+          </div>
+          <div class="mv-side">
+            <label style="margin-bottom:0">移動の速さ</label>
+            <div class="speed" id="speedseg">
+              <button data-s="slow">微調整</button>
+              <button data-s="norm" class="on">ふつう</button>
+              <button data-s="fast">速い</button>
+            </div>
+            <div class="hint">プレビュー上のドラッグでも移動できます。選択中の要素は緑の枠で表示されます。</div>
+          </div>
+        </div>
+      </div>
+    </div></section>
+  </div>
+
+  <footer style="margin:22px 2px 6px;text-align:center;font-size:11.5px;color:var(--muted)">
+    © 2026 <b style="color:var(--gc-green-d)">GreenCross+Yamagata</b> ／ MIT License ／ 処理はすべて端末内で完結します
+  </footer>
+</div>
+<input type="file" id="file" accept="application/pdf,image/png,image/jpeg" style="display:none">
+
+<script>
+/* ---------- 拠点マスタ（ここを編集すると一覧が変わります）（green-cross.co.jp 事業所一覧より） ---------- */
+const OFFICES = {
+  "東北":[["仙台支社","TEL 022-398-3550","FAX 022-398-3580"],["石巻支社","TEL 0225-98-7511","FAX 0225-98-7521"],["郡山支社","TEL 024-953-7531","FAX 024-953-7532"],["山形支社","TEL 023-679-3601","FAX 023-679-3602"],["レンタル事業部 東北営業所","TEL 0225-98-7102","FAX 0225-98-7103"]],
+  "関東":[["東京支社","TEL 03-5809-3672","FAX 03-5809-3675"],["東京事務所","TEL 03-5809-3081","FAX 03-5809-3084"],["埼玉支社","TEL 048-871-9011","FAX 048-871-9012"],["横浜支社","TEL 045-947-2890","FAX 045-947-2891"],["相模原支社","TEL 042-713-3821","FAX 042-713-3828"],["千葉支社","TEL 043-445-8867","FAX 043-445-8868"],["関東支社","TEL 0480-53-7421","FAX 0480-53-7437"],["レンタル事業部 東京営業所","TEL 048-299-9721","FAX 048-299-9751"],["レンタル事業部 関東営業所","TEL 0480-53-7423","FAX 0480-53-7437"],["メディア事業部 東京本部","TEL 03-5809-3209","FAX 03-5809-3252"]],
+  "東海":[["名古屋支社","TEL 052-626-8590","FAX 052-626-8596"],["四日市支社","TEL 059-334-8611","FAX 059-334-8622"],["静岡支社","TEL 054-263-3630","FAX 054-263-3632"],["岐阜支社","TEL 058-372-5100","FAX 058-372-5101"],["レンタル事業部 東海営業所","TEL 058-372-5110","FAX 058-372-5101"]],
+  "関西":[["神戸支社","TEL 078-306-3880","FAX 078-306-3899"],["姫路支社","TEL 079-240-5810","FAX 079-240-5870"],["大阪支社","TEL 072-247-7901","FAX 072-247-7902"],["京都支社","TEL 075-605-3171","FAX 075-605-3175"],["奈良営業所","TEL 0742-63-8110","FAX 0742-63-8121"],["レンタル事業部 関西営業所","TEL 0742-63-8120","FAX 0742-63-8121"],["レンタル事業部 大阪営業所","TEL 06-4702-0810","FAX 06-4702-0811"],["レンタル事業部 姫路営業所","TEL 079-240-5810","FAX 079-240-5870"],["メディア事業部 大阪支店","TEL 06-6943-1001","FAX 06-6943-1011"]],
+  "中国":[["山口支社","TEL 083-978-0008","FAX 083-978-0010"],["下関営業所","TEL 083-254-2008","FAX 083-254-2007"],["広島支社","TEL 082-831-8380","FAX 082-831-8385"],["福山営業所","TEL 084-927-0200","FAX 084-927-0211"],["岡山支社","TEL 086-200-3350","FAX 086-200-3353"],["鳥取支社","TEL 0857-30-7720","FAX 0857-30-7721"],["島根支社","TEL 0852-36-8800","FAX 0852-36-8080"],["レンタル事業部 岩国営業所","TEL 0827-35-5560","FAX 0827-35-5561"],["レンタル事業部 山陰営業所","TEL 0859-45-5080","FAX 0859-45-5051"]],
+  "四国":[["松山営業所","TEL 089-989-5071","FAX 089-989-5072"],["高松支社","TEL 087-862-2400","FAX 087-862-9933"],["徳島支社","TEL 088-664-8780","FAX 088-664-8782"],["高知支社","TEL 088-837-1588","FAX 088-837-1577"],["レンタル事業部 四国営業所","TEL 087-862-2400","FAX 087-862-9933"]],
+  "九州・沖縄":[["本社","TEL 092-737-0370","FAX 092-737-0371"],["福岡支社","TEL 092-292-9551","FAX 092-292-9553"],["北九州支社","TEL 093-521-8800","FAX 093-521-8807"],["久留米支社","TEL 0942-39-5511","FAX 0942-39-7804"],["佐賀支社","TEL 0952-41-5000","FAX 0952-41-5009"],["長崎支社","TEL 095-887-3388","FAX 095-887-3387"],["佐世保支社","TEL 0956-33-3388","FAX 0956-31-7575"],["熊本支社","TEL 096-369-2288","FAX 096-367-5137"],["人吉支社","TEL 0966-45-6868","FAX 0966-45-6767"],["大分支社","TEL 097-545-2222","FAX 097-544-9412"],["宮崎支社","TEL 0985-86-7400","FAX 0985-86-7401"],["鹿児島支社","TEL 099-275-0900","FAX 099-275-0903"],["鹿屋支社","TEL 0994-43-3988","FAX 0994-43-3922"],["沖縄支社","TEL 098-873-0200","FAX 098-873-0203"],["名護営業所","TEL 0980-43-6640","FAX 0980-43-6641"],["レンタル事業部 本部","TEL 0942-87-5511","FAX 0942-87-5521"],["レンタル事業部 福岡営業所","TEL 092-409-7991","FAX 092-409-7992"],["レンタル事業部 南九州営業所","TEL 0985-86-7400","FAX 0985-86-7401"],["メディア事業部 福岡支店","TEL 092-292-9551","FAX 092-292-9553"]],
+};
+
+pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const $=id=>document.getElementById(id);
+const cPdf=$("cPdf"),cText=$("cText"),ctxP=cPdf.getContext("2d"),ctxT=cText.getContext("2d");
+const SHACHI="#d7000f";
+
+let state={
+  loaded:false,pageW:0,pageH:0,scale:1,origName:"flyer",
+  font:"kaku",
+  blk:{nx:.50,ny:.92},   blkPt:18, blkColor:"#111111",
+  free:{nx:.50,ny:.83},  freePt:13, freeColor:"#111111",
+  stamp:{nx:.93,ny:.90}, stampPt:28,
+  bbox:{}, active:null,
+};
+const DEF={blk:{nx:.50,ny:.92},free:{nx:.50,ny:.83},stamp:{nx:.93,ny:.90}};
+
+function FF(){ return state.font==="maru"
+  ? '"Hiragino Maru Gothic ProN","Hiragino Maru Gothic Pro","YuGothic","Yu Gothic","Meiryo",sans-serif'
+  : '"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic Medium","Yu Gothic","Meiryo",sans-serif'; }
+function WT(){ return state.font==="maru"?"600":"700"; }
+
+/* セレクト生成 */
+(function(){const sel=$("office");for(const r in OFFICES){const og=document.createElement("optgroup");og.label=r;OFFICES[r].forEach((o,i)=>{const op=document.createElement("option");op.value=r+"|"+i;op.textContent=o[0];og.appendChild(op);});sel.appendChild(og);}})();
+$("office").addEventListener("change",e=>{const v=e.target.value;if(!v)return;const[r,i]=v.split("|");const o=OFFICES[r][+i];$("name").value=o[0];$("tel").value=o[1];$("fax").value=o[2];draw();});
+["name","tel","fax","free","staff"].forEach(id=>$(id).addEventListener("input",draw));
+
+/* 書体・色・サイズ */
+document.querySelectorAll("#fontseg button").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("#fontseg button").forEach(x=>x.classList.remove("on"));b.classList.add("on");state.font=b.dataset.f;draw();}));
+function colorSeg(segId,key){document.querySelectorAll("#"+segId+" button").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll("#"+segId+" button").forEach(x=>x.classList.remove("on"));b.classList.add("on");state[key]=b.dataset.c;draw();}));}
+colorSeg("blkcolor","blkColor"); colorSeg("freecolor","freeColor");
+$("blksize").addEventListener("input",e=>{state.blkPt=+e.target.value;$("blkszl").textContent=Math.round(state.blkPt)+"pt";draw();});
+$("blkszl").textContent="18pt";
+$("freesize").addEventListener("input",e=>{state.freePt=+e.target.value;draw();});
+$("stampsize").addEventListener("input",e=>{state.stampPt=+e.target.value;draw();});
+$("reset").addEventListener("click",()=>{state.blk={...DEF.blk};state.free={...DEF.free};state.stamp={...DEF.stamp};draw();});
+
+/* ファイル */
+const drop=$("drop"),fileInput=$("file");
+drop.addEventListener("click",()=>fileInput.click());
+$("swap").addEventListener("click",()=>fileInput.click());
+fileInput.addEventListener("change",e=>{if(e.target.files[0])loadFile(e.target.files[0]);});
+["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hot");}));
+drop.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadFile(f);});
+function showErr(m){const el=$("err");el.textContent=m;el.style.display=m?"block":"none";}
+
+function isImg(file){return /^image\/(png|jpe?g)$/.test(file.type)||/\.(png|jpe?g)$/i.test(file.name);}
+async function loadFile(file){
+  showErr("");
+  const pdfOK=file.type==="application/pdf"||/\.pdf$/i.test(file.name);
+  if(!pdfOK&&!isImg(file)){showErr("PDF・JPG・PNG のいずれかを選んでください。");return;}
+  state.origName=file.name.replace(/\.(pdf|png|jpe?g)$/i,"");
+  try{
+    if(pdfOK){
+      const buf=await file.arrayBuffer();
+      const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+      const page=await pdf.getPage(1);
+      const vp1=page.getViewport({scale:1}); state.pageW=vp1.width; state.pageH=vp1.height;
+      const scale=Math.min(4,Math.max(2,2200/Math.max(vp1.width,vp1.height))); state.scale=scale;
+      const vp=page.getViewport({scale});
+      cPdf.width=cText.width=Math.round(vp.width); cPdf.height=cText.height=Math.round(vp.height);
+      await page.render({canvasContext:ctxP,viewport:vp}).promise;
+    }else{
+      const img=await loadImage(file);
+      const iw=img.naturalWidth, ih=img.naturalHeight;
+      const cap=2600, k=Math.min(1,cap/Math.max(iw,ih));
+      const cw=Math.round(iw*k), ch=Math.round(ih*k);
+      cPdf.width=cText.width=cw; cPdf.height=cText.height=ch;
+      ctxP.clearRect(0,0,cw,ch); ctxP.drawImage(img,0,0,cw,ch);
+      // 出力PDFは長辺をA4長辺に合わせ、画像の縦横比を保持
+      const A4long=841.89, pt=A4long/Math.max(iw,ih);
+      state.pageW=iw*pt; state.pageH=ih*pt; state.scale=Math.max(cw,ch)/A4long;
+      URL.revokeObjectURL(img.src);
+    }
+    state.loaded=true; $("fname").textContent=file.name;
+    drop.style.display="none"; $("host").style.display="block"; $("swap").style.display="inline";
+    $("mover").style.display="block";
+    if(!state.active)state.active="blk";
+    ["png","pdf","reset"].forEach(id=>$(id).disabled=false);
+    if(!$("name").value&&$("office").value)$("office").dispatchEvent(new Event("change"));
+    draw();
+  }catch(err){showErr("読み込めませんでした："+(err&&err.message||err));}
+}
+function loadImage(file){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error("画像の読み込みに失敗"));im.src=URL.createObjectURL(file);});}
+
+/* ---------- 描画 ---------- */
+function draw(){
+  if(!state.loaded)return;
+  ctxT.clearRect(0,0,cText.width,cText.height);
+  state.bbox={};
+  drawContact(); drawFree(); drawStamp();
+  drawSelection(); updatePicker();
+}
+function drawSelection(){
+  const k=state.active, b=k&&state.bbox[k];
+  if(!b)return;
+  ctxT.save();
+  ctxT.strokeStyle="rgba(8,177,77,.9)";
+  ctxT.lineWidth=Math.max(1.5,cText.width*0.0016);
+  ctxT.setLineDash([7,5]);
+  ctxT.strokeRect(b.x,b.y,b.w,b.h);
+  ctxT.restore();
+}
+function strokeIfWhite(c,px,t,x,y){ if(c.toLowerCase()==="#ffffff"){ctxT.lineWidth=px*0.10;ctxT.strokeStyle="rgba(0,0,0,.55)";ctxT.strokeText(t,x,y);} }
+
+function drawContact(){
+  const s=state.scale,name=$("name").value.trim(),tel=$("tel").value.trim(),fax=$("fax").value.trim();
+  if(!name&&!tel&&!fax)return;
+  const big=state.blkPt*s,sub=big*0.42,gapX=big*0.34;
+  const x=state.blk.nx*cText.width,y=state.blk.ny*cText.height;
+  ctxT.textBaseline="top";ctxT.textAlign="left";ctxT.fillStyle=state.blkColor;
+  const put=(t,px,wt,xx,yy)=>{ctxT.font=wt+" "+px+"px "+FF();strokeIfWhite(state.blkColor,px,t,xx,yy);ctxT.fillStyle=state.blkColor;ctxT.fillText(t,xx,yy);return ctxT.measureText(t).width;};
+  let nameW=0; if(name)nameW=put(name,big,WT(),x,y);
+  const subLineH=sub*1.22,stackH=subLineH+sub*0.92,stackTop=y+big*0.46-stackH/2;
+  const sx=x+(name?nameW+gapX:0); let rightW=0;
+  if(tel)rightW=Math.max(rightW,put(tel,sub,"600",sx,stackTop));
+  if(fax)rightW=Math.max(rightW,put(fax,sub,"600",sx,stackTop+subLineH));
+  const totalW=(name?nameW:0)+((name&&(tel||fax))?gapX:0)+rightW;
+  state.bbox.blk={x:x-6,y:y-6,w:totalW+12,h:Math.max(big*0.92,stackH)+12};
+}
+function drawFree(){
+  const t=$("free").value.trim(); if(!t)return;
+  const s=state.scale,px=state.freePt*s;
+  const x=state.free.nx*cText.width,y=state.free.ny*cText.height;
+  ctxT.textBaseline="top";ctxT.textAlign="left";
+  ctxT.font=WT()+" "+px+"px "+FF();
+  strokeIfWhite(state.freeColor,px,t,x,y);
+  ctxT.fillStyle=state.freeColor; ctxT.fillText(t,x,y);
+  state.bbox.free={x:x-6,y:y-6,w:ctxT.measureText(t).width+12,h:px*0.92+12};
+}
+function drawStamp(){
+  const nm=$("staff").value.trim(); if(!nm)return;
+  const s=state.scale,d=state.stampPt*s;
+  const cx=state.stamp.nx*cText.width,cy=state.stamp.ny*cText.height;
+  ctxT.save();
+  ctxT.strokeStyle=SHACHI;ctxT.fillStyle=SHACHI;ctxT.lineWidth=Math.max(1.2,d*0.05);
+  ctxT.beginPath();ctxT.arc(cx,cy,d/2,0,Math.PI*2);ctxT.stroke();
+  const chars=[...nm].slice(0,4),n=chars.length;
+  const fs=n<=1?d*0.56:n===2?d*0.46:n===3?d*0.36:d*0.30;
+  ctxT.font="700 "+fs+"px "+FF(); ctxT.textAlign="center";ctxT.textBaseline="middle";
+  const gap=fs*1.02,top=cy-gap*(n-1)/2;
+  chars.forEach((c,i)=>ctxT.fillText(c,cx,top+gap*i));
+  ctxT.restore();
+  state.bbox.stamp={x:cx-d/2-4,y:cy-d/2-4,w:d+8,h:d+8};
+}
+
+/* ---------- ドラッグ／キー操作 ---------- */
+function toCanvas(e){const r=cText.getBoundingClientRect();return{cx:(e.clientX-r.left)*(cText.width/r.width),cy:(e.clientY-r.top)*(cText.height/r.height)};}
+function hitItem(cx,cy){for(const k of["stamp","free","blk"]){const b=state.bbox[k];if(b&&cx>=b.x&&cx<=b.x+b.w&&cy>=b.y&&cy<=b.y+b.h)return k;}return null;}
+let dragging=false,dx=0,dy=0;
+cText.addEventListener("pointerdown",e=>{
+  const{cx,cy}=toCanvas(e);const k=hitItem(cx,cy);
+  if(!k){draw();return;}
+  state.active=k;dragging=true;cText.classList.add("drag");cText.setPointerCapture(e.pointerId);
+  dx=cx-state[k].nx*cText.width; dy=cy-state[k].ny*cText.height;
+  draw();
+});
+cText.addEventListener("pointermove",e=>{
+  if(!dragging||!state.active)return;
+  const{cx,cy}=toCanvas(e);const it=state[state.active];
+  it.nx=Math.min(.999,Math.max(.001,(cx-dx)/cText.width));
+  it.ny=Math.min(.999,Math.max(.001,(cy-dy)/cText.height));
+  draw();
+});
+["pointerup","pointercancel"].forEach(ev=>cText.addEventListener(ev,()=>{dragging=false;cText.classList.remove("drag");}));
+window.addEventListener("keydown",e=>{
+  if(!state.loaded)return;const k=state.active||"blk";if(!state.bbox[k])return;
+  const step=e.shiftKey?0.01:0.002;let h=false;const it=state[k];
+  if(e.key==="ArrowLeft"){it.nx-=step;h=true;} if(e.key==="ArrowRight"){it.nx+=step;h=true;}
+  if(e.key==="ArrowUp"){it.ny-=step;h=true;} if(e.key==="ArrowDown"){it.ny+=step;h=true;}
+  if(h){e.preventDefault();draw();}
+});
+
+/* ---------- 要素選択ボタン＋十字パッド（スマホ向け） ---------- */
+const PICKLBL={blk:"拠点情報",free:"もう一行",stamp:"担当者印"};
+function hasContent(k){
+  if(k==="blk")return !!($("name").value.trim()||$("tel").value.trim()||$("fax").value.trim());
+  if(k==="free")return !!$("free").value.trim();
+  if(k==="stamp")return !!$("staff").value.trim();
+  return false;
+}
+function updatePicker(){
+  document.querySelectorAll("#pick button").forEach(b=>{
+    const k=b.dataset.k, ok=hasContent(k);
+    b.disabled=!ok;
+    b.classList.toggle("on",state.active===k&&ok);
+  });
+  // 選択中の要素が空になったら、内容のある要素へ自動で切替
+  if(state.active&&!hasContent(state.active)){
+    const next=["blk","free","stamp"].find(hasContent);
+    state.active=next||null;
+    document.querySelectorAll("#pick button").forEach(b=>b.classList.toggle("on",state.active===b.dataset.k));
+  }
+}
+document.querySelectorAll("#pick button").forEach(b=>b.addEventListener("click",()=>{
+  if(b.disabled)return;
+  state.active=b.dataset.k;
+  draw();
+}));
+
+/* 移動の速さ */
+let padSpeed="norm";
+const SPEEDS={slow:0.0012,norm:0.004,fast:0.010};
+document.querySelectorAll("#speedseg button").forEach(b=>b.addEventListener("click",()=>{
+  document.querySelectorAll("#speedseg button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");padSpeed=b.dataset.s;
+}));
+
+/* 押している間だけ動く十字パッド */
+let padTimer=null;
+function padMove(dxn,dyn){
+  if(!state.loaded)return;
+  if(!state.active||!hasContent(state.active)){
+    state.active=["blk","free","stamp"].find(hasContent)||null;
+    if(!state.active)return;
+  }
+  const it=state[state.active], step=SPEEDS[padSpeed];
+  it.nx=Math.min(.999,Math.max(.001,it.nx+dxn*step));
+  it.ny=Math.min(.999,Math.max(.001,it.ny+dyn*step));
+  draw();
+}
+function stopPad(btn){
+  if(padTimer){clearInterval(padTimer);padTimer=null;}
+  if(btn)btn.classList.remove("hold");
+  document.querySelectorAll("#pad .pad.hold").forEach(b=>b.classList.remove("hold"));
+}
+document.querySelectorAll("#pad .pad").forEach(btn=>{
+  const dxn=+btn.dataset.dx, dyn=+btn.dataset.dy;
+  btn.addEventListener("pointerdown",e=>{
+    e.preventDefault();
+    btn.setPointerCapture(e.pointerId);
+    btn.classList.add("hold");
+    stopPadTimerOnly();
+    padMove(dxn,dyn);                       // まず1回動かす
+    padTimer=setInterval(()=>padMove(dxn,dyn),45); // 押している間は連続移動
+  });
+  ["pointerup","pointercancel","lostpointercapture"].forEach(ev=>btn.addEventListener(ev,()=>stopPad(btn)));
+  btn.addEventListener("contextmenu",e=>e.preventDefault()); // 長押しメニュー抑止
+});
+function stopPadTimerOnly(){if(padTimer){clearInterval(padTimer);padTimer=null;}}
+window.addEventListener("blur",()=>stopPad());
+
+/* ---------- 出力 ---------- */
+function compose(){const c=document.createElement("canvas");c.width=cPdf.width;c.height=cPdf.height;const x=c.getContext("2d");ctxT.clearRect(0,0,cText.width,cText.height);state.bbox={};drawContact();drawFree();drawStamp();x.drawImage(cPdf,0,0);x.drawImage(cText,0,0);draw();return c;}
+function outName(ext){const off=($("name").value.trim()||"拠点").replace(/[\\\/:*?"<>|]/g,"");return state.origName+"_"+off+"."+ext;}
+function dl(href,name){const a=document.createElement("a");a.href=href;a.download=name;a.click();}
+$("png").addEventListener("click",()=>{if(state.loaded)dl(compose().toDataURL("image/png"),outName("png"));});
+$("pdf").addEventListener("click",async()=>{
+  if(!state.loaded)return;
+  try{
+    const jpeg=compose().toDataURL("image/jpeg",0.95);
+    const bytes=Uint8Array.from(atob(jpeg.split(",")[1]),c=>c.charCodeAt(0));
+    const{PDFDocument}=PDFLib;const doc=await PDFDocument.create();
+    const page=doc.addPage([state.pageW,state.pageH]);
+    const img=await doc.embedJpg(bytes);
+    page.drawImage(img,{x:0,y:0,width:state.pageW,height:state.pageH});
+    const out=await doc.save();
+    dl(URL.createObjectURL(new Blob([out],{type:"application/pdf"})),outName("pdf"));
+  }catch(err){showErr("PDF出力でエラー："+(err&&err.message||err));}
+});
+</script>
