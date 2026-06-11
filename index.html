@@ -1,5 +1,5 @@
 <!--
-  チラシ・写真 文字入れツール v0.6
+  チラシ・写真 文字入れツール v0.9
   (c) 2026 GreenCross+Yamagata — MIT License
   ・PDFをドロップ → 拠点を選択 → PNG/PDF出力
   ・追加要素：担当者印（シャチハタ風）／もう一行の自由入力
@@ -7,6 +7,8 @@
   ・スマホ対応：要素の選択ボタン＋十字パッド（押している間は連続移動）を追加
   ・スマホ保存対応：共有シートで「画像を保存」「ファイルに保存」を選択可能に
   ・ひとこと×3（行ごとに色/サイズ/位置）＋🎤音声入力（Web Speech API・キー不要）
+  ・出力は1タップで共有シートへ（ファイル名は「元名_拠点名」で自動）
+  ・「元画像を保存」ボタン：カメラ直接撮影時など、無加工の元データを端末に残せます
   ・処理はすべてブラウザ内で完結（ファイルはどこにも送信されません）
 -->
 <meta charset="utf-8">
@@ -215,11 +217,12 @@
     <section class="card preview"><div class="bd">
       <div class="stagebar">
         <span class="pill"><span class="mark" style="width:9px;height:9px;border-radius:2px;background:var(--gc-green);display:inline-block"></span> <span id="fname">ファイル未選択</span></span>
-        <button class="swap" id="swap" style="display:none">別のPDFに差し替え</button>
+        <button class="swap" id="saveorig" style="display:none">元画像を保存</button>
+        <button class="swap" id="swap" style="display:none">別のファイルに差し替え</button>
       </div>
       <div class="stage">
         <div class="drop" id="drop">
-          <div class="big">チラシをドロップ</div><div style="font-size:12px">PDF / JPG / PNG 対応</div><div>またはクリックして選択</div>
+          <div class="big">チラシ・写真をドロップ</div><div style="font-size:12px">PDF / JPG / PNG 対応</div><div>またはタップして選択（カメラ撮影も可）</div>
         </div>
         <div class="canvas-host" id="host" style="display:none">
           <canvas id="cPdf"></canvas><canvas id="cText"></canvas>
@@ -367,6 +370,7 @@ async function loadFile(file){
   const pdfOK=file.type==="application/pdf"||/\.pdf$/i.test(file.name);
   if(!pdfOK&&!isImg(file)){showErr("PDF・JPG・PNG のいずれかを選んでください。");return;}
   state.origName=file.name.replace(/\.(pdf|png|jpe?g)$/i,"");
+  state.origFile=file;
   try{
     if(pdfOK){
       const buf=await file.arrayBuffer();
@@ -390,7 +394,7 @@ async function loadFile(file){
       URL.revokeObjectURL(img.src);
     }
     state.loaded=true; $("fname").textContent=file.name;
-    drop.style.display="none"; $("host").style.display="block"; $("swap").style.display="inline";
+    drop.style.display="none"; $("host").style.display="block"; $("swap").style.display="inline"; $("saveorig").style.display="inline";
     $("mover").style.display="block";
     if(!state.active)state.active="blk";
     ["png","pdf","reset"].forEach(id=>$(id).disabled=false);
@@ -562,7 +566,10 @@ window.addEventListener("blur",()=>stopPad());
 
 /* ---------- 出力 ---------- */
 function compose(){const c=document.createElement("canvas");c.width=cPdf.width;c.height=cPdf.height;const x=c.getContext("2d");ctxT.clearRect(0,0,cText.width,cText.height);state.bbox={};drawContact();drawFree();drawStamp();x.drawImage(cPdf,0,0);x.drawImage(cText,0,0);draw();return c;}
-function outName(ext){const off=($("name").value.trim()||"拠点").replace(/[\\\/:*?"<>|]/g,"");return state.origName+"_"+off+"."+ext;}
+function outName(ext){
+  const off=$("name").value.trim().replace(/[\\/:*?"<>|]/g,"");
+  return state.origName+"_"+(off||"文字入れ")+"."+ext;
+}
 /* ---------- 出力（PC：ダウンロード ／ スマホ：共有シート） ---------- */
 function isTouch(){return matchMedia("(pointer:coarse)").matches;}
 function canvasBlob(c,type,q){return new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(new Error("画像の生成に失敗")),type,q));}
@@ -580,7 +587,7 @@ async function saveBlob(blob,name){
   }
   const url=URL.createObjectURL(blob);
   if(isTouch()){
-    if(blob.type==="image/png"){showSaveModal(url);return;}   // 画像：長押し保存の案内
+    if(blob.type==="image/png"||blob.type==="image/jpeg"){showSaveModal(url);return;}   // 画像：長押し保存の案内
     const w=window.open(url,"_blank");                         // PDF：新しいタブで開く→共有から保存
     if(w){setTimeout(()=>URL.revokeObjectURL(url),120000);return;}
   }
@@ -596,6 +603,14 @@ $("saveclose").addEventListener("click",()=>{
   $("savebox").style.display="none";
   const u=$("saveimg").src; $("saveimg").src="";
   if(u.startsWith("blob:"))URL.revokeObjectURL(u);
+});
+
+$("saveorig").addEventListener("click",async()=>{
+  const f=state.origFile; if(!f)return;
+  try{
+    const type=f.type||(/\.pdf$/i.test(f.name)?"application/pdf":/\.png$/i.test(f.name)?"image/png":"image/jpeg");
+    await saveBlob(new Blob([f],{type}),f.name);
+  }catch(err){showErr("元画像の保存でエラー："+(err&&err.message||err));}
 });
 
 $("png").addEventListener("click",async()=>{
